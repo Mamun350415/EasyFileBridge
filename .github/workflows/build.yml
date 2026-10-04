@@ -26,13 +26,14 @@ jobs:
           import pathlib
           import shutil
 
-          with zipfile.ZipFile('EasyFileBridge-source.zip') as z:
-              for name in z.namelist():
-                  p = pathlib.PurePosixPath(name)
-                  if p.is_absolute() or '..' in p.parts:
+          with zipfile.ZipFile('EasyFileBridge-source.zip') as archive:
+              for name in archive.namelist():
+                  path = pathlib.PurePosixPath(name)
+                  if path.is_absolute() or '..' in path.parts:
                       raise SystemExit('Invalid archive path')
+
               shutil.rmtree('app', ignore_errors=True)
-              z.extractall('.')
+              archive.extractall('.')
           SCRIPT
 
       - name: Set up Java
@@ -54,6 +55,15 @@ jobs:
       - name: Install Android packages
         run: sdkmanager "platforms;android-35" "build-tools;34.0.0" "platform-tools"
 
+      - name: Align Kotlin library versions
+        run: |
+          cat >> app/build.gradle <<'GRADLE'
+
+          dependencies {
+              implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+          }
+          GRADLE
+
       - name: Restore private signing key
         env:
           EFB_KEYSTORE_BASE64: ${{ secrets.EFB_KEYSTORE_BASE64 }}
@@ -70,12 +80,12 @@ jobs:
           if not key or not password:
               raise SystemExit('Add both signing secrets in repository Settings first')
 
-          p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'efb.jks'
-          p.write_bytes(base64.b64decode(key, validate=True))
-          p.chmod(0o600)
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'efb.jks'
+          path.write_bytes(base64.b64decode(key, validate=True))
+          path.chmod(0o600)
 
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write('EFB_KEYSTORE_PATH=' + str(p) + '\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as env_file:
+              env_file.write('EFB_KEYSTORE_PATH=' + str(path) + '\n')
           SCRIPT
 
       - name: Build signed APK

@@ -1,20 +1,31 @@
 name: Build Android APK
+
 on:
   workflow_dispatch:
   push:
-    paths: ['EasyFileBridge-source.zip', '.github/workflows/build.yml']
+    paths:
+      - EasyFileBridge-source.zip
+      - .github/workflows/build.yml
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Download project
+        uses: actions/checkout@v4
+
       - name: Unpack complete project
         run: |
           python3 - <<'SCRIPT'
-          import zipfile, pathlib, shutil
+          import zipfile
+          import pathlib
+          import shutil
+
           with zipfile.ZipFile('EasyFileBridge-source.zip') as z:
               for name in z.namelist():
                   p = pathlib.PurePosixPath(name)
@@ -23,35 +34,57 @@ jobs:
               shutil.rmtree('app', ignore_errors=True)
               z.extractall('.')
           SCRIPT
-      - uses: actions/setup-java@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
       - name: Install Android packages
         run: sdkmanager "platforms;android-35" "build-tools;34.0.0" "platform-tools"
+
       - name: Restore private signing key
         env:
           EFB_KEYSTORE_BASE64: ${{ secrets.EFB_KEYSTORE_BASE64 }}
           EFB_KEYSTORE_PASSWORD: ${{ secrets.EFB_KEYSTORE_PASSWORD }}
         run: |
           python3 - <<'SCRIPT'
-          import os, base64, pathlib
-          if not os.environ['EFB_KEYSTORE_BASE64'] or not os.environ['EFB_KEYSTORE_PASSWORD']:
+          import os
+          import base64
+          import pathlib
+
+          key = os.environ['EFB_KEYSTORE_BASE64']
+          password = os.environ['EFB_KEYSTORE_PASSWORD']
+
+          if not key or not password:
               raise SystemExit('Add both signing secrets in repository Settings first')
+
           p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'efb.jks'
-          p.write_bytes(base64.b64decode(os.environ['EFB_KEYSTORE_BASE64'], validate=True))
+          p.write_bytes(base64.b64decode(key, validate=True))
           p.chmod(0o600)
+
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write('EFB_KEYSTORE_PATH=' + str(p) + '\n')
           SCRIPT
+
       - name: Build signed APK
         env:
           EFB_KEYSTORE_PASSWORD: ${{ secrets.EFB_KEYSTORE_PASSWORD }}
         run: gradle :app:assembleRelease --no-daemon
-      - uses: actions/upload-artifact@v4
+
+      - name: Save APK
+        uses: actions/upload-artifact@v4
         with:
           name: EasyFileBridge-APK
           path: app/build/outputs/apk/release/app-release.apk
